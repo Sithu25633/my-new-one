@@ -1,147 +1,116 @@
 
 import { Photo, Video, Letter } from '../types';
+import { API_BASE_URL } from '../constants';
 
-// ============================================================================
-// MOCK BACKEND - This file simulates a backend API using localStorage.
-// In a real application, this would be replaced with actual HTTP requests
-// to a Node.js/Express server running on your VPS.
-// ============================================================================
+// Helper function to handle API requests
+const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
+    const token = localStorage.getItem('authToken');
+    const headers = new Headers(options.headers || {});
 
-const MOCK_LATENCY = 500; // ms
+    if (token) {
+        headers.append('Authorization', `Bearer ${token}`);
+    }
+    
+    // Do not set Content-Type for FormData, browser does it.
+    if (!(options.body instanceof FormData)) {
+        headers.append('Content-Type', 'application/json');
+    }
 
-// Helper to simulate network delay
-const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+    });
 
-// Helper for generating unique IDs
-const uuid = () => crypto.randomUUID();
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'An unknown error occurred' }));
+        throw new Error(errorData.message || 'Request failed');
+    }
 
-// --- Initialization: Load data from localStorage or set defaults ---
+    // Handle responses with no content
+    if (response.status === 204) {
+        return;
+    }
 
-const initData = <T,>(key: string, defaultValue: T[]): T[] => {
-  try {
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : defaultValue;
-  } catch (e) {
-    console.error(`Failed to parse ${key} from localStorage`, e);
-    return defaultValue;
-  }
+    return response.json();
 };
-
-let mockUser = initData<any>('mockUser', []);
-let mockPhotos = initData<Photo>('mockPhotos', []);
-let mockVideos = initData<Video>('mockVideos', []);
-let mockLetters = initData<Letter>('mockLetters', []);
-
 
 // --- Auth ---
 
 export const loginOrRegister = async (username: string, password: string): Promise<{ token: string }> => {
-    await delay(MOCK_LATENCY);
-    if (mockUser.length === 0) {
-        // First time: Register the account
-        mockUser.push({ username, password });
-        localStorage.setItem('mockUser', JSON.stringify(mockUser));
-        return { token: 'mock-jwt-token-for-' + username };
-    } else {
-        // Login
-        const user = mockUser[0];
-        if (user.username === username && user.password === password) {
-            return { token: 'mock-jwt-token-for-' + username };
-        } else {
-            throw new Error('Invalid credentials');
-        }
-    }
+    return apiRequest('/api/auth/register-login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+    });
 };
 
 // --- Photos ---
 
 export const getPhotos = async (): Promise<Photo[]> => {
-    await delay(MOCK_LATENCY);
-    return [...mockPhotos];
+    const photos = await apiRequest('/api/photos');
+    // Prepend base URL to photo paths
+    return photos.map((p: Photo) => ({ ...p, url: `${API_BASE_URL}${p.url}` }));
 };
 
 export const uploadPhotos = async (files: FileList, category: string): Promise<void> => {
-    await delay(MOCK_LATENCY * 2);
-    const newPhotos: Photo[] = Array.from(files).map(file => ({
-        id: uuid(),
-        url: URL.createObjectURL(file), // Simulates a URL from VPS storage
-        category,
-        createdAt: new Date().toISOString(),
-        name: file.name,
-    }));
-    mockPhotos.push(...newPhotos);
-    localStorage.setItem('mockPhotos', JSON.stringify(mockPhotos));
+    const formData = new FormData();
+    formData.append('category', category);
+    for (let i = 0; i < files.length; i++) {
+        formData.append('photos', files[i]);
+    }
+    await apiRequest('/api/photos', {
+        method: 'POST',
+        body: formData,
+    });
 };
 
 export const deletePhoto = async (id: string): Promise<void> => {
-    await delay(MOCK_LATENCY);
-    mockPhotos = mockPhotos.filter(p => p.id !== id);
-    localStorage.setItem('mockPhotos', JSON.stringify(mockPhotos));
-}
+    await apiRequest(`/api/photos/${id}`, { method: 'DELETE' });
+};
 
 // --- Videos ---
 
 export const getVideos = async (): Promise<Video[]> => {
-    await delay(MOCK_LATENCY);
-    return [...mockVideos];
+    const videos = await apiRequest('/api/videos');
+    // Prepend base URL to video paths
+    return videos.map((v: Video) => ({ ...v, url: `${API_BASE_URL}${v.url}` }));
 };
 
 export const uploadVideos = async (files: FileList, category: string): Promise<void> => {
-    await delay(MOCK_LATENCY * 3);
-    const newVideos: Video[] = Array.from(files).map(file => ({
-        id: uuid(),
-        url: URL.createObjectURL(file),
-        category,
-        createdAt: new Date().toISOString(),
-        name: file.name,
-    }));
-    mockVideos.push(...newVideos);
-    localStorage.setItem('mockVideos', JSON.stringify(mockVideos));
+    const formData = new FormData();
+    formData.append('category', category);
+    for (let i = 0; i < files.length; i++) {
+        formData.append('videos', files[i]);
+    }
+    await apiRequest('/api/videos', {
+        method: 'POST',
+        body: formData,
+    });
 };
 
 export const deleteVideo = async (id: string): Promise<void> => {
-    await delay(MOCK_LATENCY);
-    mockVideos = mockVideos.filter(v => v.id !== id);
-    localStorage.setItem('mockVideos', JSON.stringify(mockVideos));
+    await apiRequest(`/api/videos/${id}`, { method: 'DELETE' });
 };
 
 // --- Letters ---
 
 export const getLetters = async (): Promise<Letter[]> => {
-    await delay(MOCK_LATENCY);
-    return [...mockLetters];
+    return apiRequest('/api/letters');
 };
 
 export const createLetter = async (letterData: Partial<Letter>): Promise<Letter> => {
-    await delay(MOCK_LATENCY);
-    const newLetter: Letter = {
-        id: uuid(),
-        title: letterData.title || 'Untitled',
-        content: letterData.content || '',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-    };
-    mockLetters.push(newLetter);
-    localStorage.setItem('mockLetters', JSON.stringify(mockLetters));
-    return newLetter;
+    return apiRequest('/api/letters', {
+        method: 'POST',
+        body: JSON.stringify(letterData),
+    });
 };
 
 export const updateLetter = async (id: string, letterData: Partial<Letter>): Promise<Letter> => {
-    await delay(MOCK_LATENCY);
-    const letterIndex = mockLetters.findIndex(l => l.id === id);
-    if (letterIndex === -1) throw new Error('Letter not found');
-    const updatedLetter = {
-        ...mockLetters[letterIndex],
-        ...letterData,
-        updatedAt: new Date().toISOString(),
-    };
-    mockLetters[letterIndex] = updatedLetter;
-    localStorage.setItem('mockLetters', JSON.stringify(mockLetters));
-    return updatedLetter;
+    return apiRequest(`/api/letters/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(letterData),
+    });
 };
 
 export const deleteLetter = async (id: string): Promise<void> => {
-    await delay(MOCK_LATENCY);
-    mockLetters = mockLetters.filter(l => l.id !== id);
-    localStorage.setItem('mockLetters', JSON.stringify(mockLetters));
+    await apiRequest(`/api/letters/${id}`, { method: 'DELETE' });
 };
